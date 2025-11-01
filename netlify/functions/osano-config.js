@@ -158,8 +158,72 @@ function generateConfigSummary(data) {
     return summary.join('\n');
 }
 
-// --- DELETED processRequest function ---
-// We will do all work inside the main handler
+/**
+ * Process the request asynchronously and send the result to Slack's response_url.
+ * This function runs in the background after we've acknowledged the slash command.
+ * @param {string} text - The text from the slash command
+ * @param {string} response_url - Slack's webhook URL to send the delayed response
+ */
+async function processRequest(text, response_url) {
+    try {
+        // 1. Find the osano.js URL
+        const match = text.match(srcRegex);
+        if (!match) {
+            throw new Error('Sorry, I couldn\'t find a valid Osano URL in that text. Please paste the full script tag or the `osano.js` URL.');
+        }
+
+        const osanoUrl = match[0];
+        const configUrl = osanoUrl.replace('/osano.js', '/config.json');
+
+        // 2. Fetch the config.json with a timeout
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 25000); // 25 second timeout
+
+        const configResponse = await fetch(configUrl, {
+            signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+
+        if (!configResponse.ok) {
+            throw new Error(`Failed to fetch config.json. Server responded with status: ${configResponse.status}`);
+        }
+        
+        const configData = await configResponse.json();
+
+        // 3. Generate the human-readable summary
+        const responseText = generateConfigSummary(configData);
+
+        // 4. Send the result back to Slack via response_url
+        await fetch(response_url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                response_type: 'in_channel',
+                text: responseText
+            })
+        });
+
+    } catch (error) {
+        console.error('Error in processRequest:', error);
+        
+        // Send error message to Slack via response_url
+        const errorMessage = error.name === 'AbortError'
+            ? 'Request timed out while fetching Osano configuration. Please try again.'
+            : error.message;
+
+        await fetch(response_url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                response_type: 'ephemeral',
+                text: `:warning: *Error:* ${errorMessage}`
+            })
+        }).catch(err => {
+            // If we can't send to response_url, just log it
+            console.error('Failed to send error to Slack:', err);
+        });
+    }
+}
 
 /**
  * This is the main Netlify Function handler.
@@ -171,60 +235,48 @@ exports.handler = async (event) => {
         return { statusCode: 405, body: 'Method Not Allowed' };
     }
 
-    let responseText = '';
-
     try {
         // 2. Parse the incoming data from Slack
         const body = new URLSearchParams(event.body);
         const text = body.get('text');
-        const response_url = body.get('response_url'); // We can still use this for error reporting if we want
+        const response_url = body.get('response_url');
 
         if (!text || !response_url) {
-            return { statusCode: 400, body: 'Bad Request: Missing text or response_url' };
+            return {
+                statusCode: 200,
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    response_type: 'ephemeral',
+                    text: ':warning: Missing required parameters. Please provide an Osano URL.'
+                })
+            };
         }
 
-        // --- ALL WORK IS NOW DONE INSIDE THE HANDLER ---
-        
-        // 3. Find the osano.js URL
-        const match = text.match(srcRegex);
-        if (!match) {
-            throw new Error('Sorry, I couldn\'t find a valid Osano URL in that text. Please paste the full script tag or the `osano.js` URL.');
-        }
+        // 3. Start processing in the background (don't await)
+        // This allows us to return immediately to Slack
+        processRequest(text, response_url).catch(error => {
+            console.error('Unhandled error in processRequest:', error);
+        });
 
-        const osanoUrl = match[0];
-        const configUrl = osanoUrl.replace('/osano.js', '/config.json');
-
-        // 4. Fetch the config.json
-        const configResponse = await fetch(configUrl);
-        if (!configResponse.ok) {
-            throw new Error(`Failed to fetch config.json. Server responded with status: ${configResponse.status}`);
-        }
-        
-        const configData = await configResponse.json();
-
-        // 5. Generate the human-readable summary
-        responseText = generateConfigSummary(configData);
-
-        // 6. Return the FINAL summary to Slack
+        // 4. Immediately return acknowledgment to Slack (within 3 seconds)
         return {
             statusCode: 200,
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                response_type: 'in_channel', // 'in_channel' or 'ephemeral' (just for the user)
-                text: responseText
+                response_type: 'in_channel',
+                text: ':hourglass_flowing_sand: Fetching Osano configuration details...'
             })
         };
-        // --- END OF WORK ---
 
     } catch (error) {
         console.error('Error in handler:', error);
         
-        // Send a user-facing error message back to Slack
+        // Return error response
         return {
-            statusCode: 200, // Always send 200 to Slack, even on error
+            statusCode: 200,
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                response_type: 'ephemeral', // Only the user who ran the command sees the error
+                response_type: 'ephemeral',
                 text: `:warning: *Error:* ${error.message}`
             })
         };
