@@ -1,9 +1,9 @@
 /**
- * Osano Config Details Bot - Netlify Function
- *
- * A Slack bot that fetches and displays Osano CMP configuration details.
- * Uses asynchronous processing to avoid Slack's 3-second timeout.
- *
+ * Osano Config Details Bot - Background Function
+ * 
+ * This is a Netlify Background Function that processes the Osano config
+ * and sends the result to Slack. Background functions can run for up to 15 minutes.
+ * 
  * @version 2.0.0
  * @author Chris Washington
  */
@@ -12,14 +12,10 @@ const fetch = require('node-fetch');
 
 // Regex to find the osano.js URL in a script tag or just a raw URL
 const OSANO_URL_REGEX = /https?:\/\/cmp\.osano\.com\/[a-zA-Z0-9-]+\/[a-zA-Z0-9-]+\/osano\.js/;
-const FETCH_TIMEOUT_MS = 50000; // 50 seconds - increased for slow Osano API responses
+const FETCH_TIMEOUT_MS = 50000; // 50 seconds
 
 /**
  * Safely get a nested value from an object.
- * @param {object} obj - The object to search.
- * @param {string} path - The dot-notation path (e.g., "ui.logo").
- * @param {*} defaultValue - The value to return if not found.
- * @returns {*} The found value or the default.
  */
 function getValue(obj, path, defaultValue = 'N/A') {
     const value = path.split('.').reduce((acc, key) => (acc && acc[key] !== undefined ? acc[key] : undefined), obj);
@@ -28,9 +24,6 @@ function getValue(obj, path, defaultValue = 'N/A') {
 
 /**
  * Formats a raw value for display.
- * @param {*} value - The raw value from the JSON.
- * @param {string} type - The format type (e.g., "boolean", "mode").
- * @returns {string} The formatted string.
  */
 function formatValue(value, type) {
     if (type === 'boolean') {
@@ -61,22 +54,17 @@ function formatValue(value, type) {
 
 /**
  * Generates the Slack mrkdwn summary from the config JSON.
- * @param {object} data - The fetched config.json.
- * @returns {string} A string formatted for Slack.
  */
 function generateConfigSummary(data) {
     let summary = [];
 
-    // Helper to add a line to the summary
     const addLine = (label, value, type) => {
         const formattedValue = formatValue(getValue(data, label, 'N/A'), type);
         summary.push(`*${value}:* ${formattedValue}`);
     };
     
-    // Helper to add a title
     const addTitle = (title) => summary.push(`\n*${title}*`);
 
-    // --- Build the Summary ---
     addTitle('Account Details');
     addLine('customerId', 'Account ID');
     addLine('configId', 'Config ID');
@@ -94,7 +82,7 @@ function generateConfigSummary(data) {
     addLine('gpcSupport', 'Support GPC', 'boolean');
     addLine('dntSupport', 'Support Do Not Track', 'boolean');
     addLine('iabEnabled', 'IAB TCF', 'boolean');
-    summary.push(`*IAB US Privacy String:* (N/A)`); // Placeholder
+    summary.push(`*IAB US Privacy String:* (N/A)`);
     addLine('googleConsent', 'Google Consent Mode', 'boolean');
 
     addTitle('Performance');
@@ -112,10 +100,6 @@ function generateConfigSummary(data) {
     addLine('timeoutSeconds', 'Timeout (Seconds)');
     addLine('policyLinkInDrawer', 'Show Links in Drawer', 'boolean');
 
-    // --- Collapsible Sections (as simple text lists) ---
-    // Note: Slack mrkdwn doesn't have tables, so lists are cleaner.
-
-    // Scripts
     const scripts = getValue(data, 'scripts', {});
     const scriptKeys = Object.keys(scripts);
     addTitle(`Scripts (${scriptKeys.length})`);
@@ -125,7 +109,6 @@ function generateConfigSummary(data) {
         summary.push('No scripts classified.');
     }
 
-    // Cookies
     const cookies = getValue(data, 'cookies', {});
     const cookieKeys = Object.keys(cookies);
     const disclosures = getValue(data, 'disclosures', []);
@@ -140,7 +123,6 @@ function generateConfigSummary(data) {
         summary.push('No cookies classified.');
     }
 
-    // iFrames
     const iframes = getValue(data, 'iframes', {});
     const iframeKeys = Object.keys(iframes);
     addTitle(`iFrames (${iframeKeys.length})`);
@@ -151,7 +133,6 @@ function generateConfigSummary(data) {
         summary.push('No iFrames classified.');
     }
 
-    // IAB Vendors
     const vendors = getValue(data, 'iab.tcf.v2.vendors', {});
     const vendorKeys = Object.keys(vendors);
     addTitle(`IAB Vendors (${vendorKeys.length})`);
@@ -160,20 +141,21 @@ function generateConfigSummary(data) {
     } else {
         summary.push('No IAB vendors disclosed.');
     }
-
-    // Note: We'll skip the palette/color section for Slack as it's less useful without visuals.
     
     return summary.join('\n');
 }
 
 /**
- * Process the request asynchronously and send the result to Slack's response_url.
- * This function runs in the background after we've acknowledged the slash command.
- * @param {string} text - The text from the slash command
- * @param {string} response_url - Slack's webhook URL to send the delayed response
+ * Background function handler - processes the Osano config request
  */
-async function processRequest(text, response_url) {
+exports.handler = async (event) => {
+    console.log('Background function started');
+    
     try {
+        const { text, response_url, user_name, channel_name } = JSON.parse(event.body);
+        
+        console.log(`Processing request from ${user_name} in #${channel_name}: ${text}`);
+
         // 1. Validate and extract the osano.js URL
         const match = text.trim().match(OSANO_URL_REGEX);
         if (!match) {
@@ -204,7 +186,6 @@ async function processRequest(text, response_url) {
         
         const configData = await configResponse.json();
         
-        // Validate that we received valid configuration data
         if (!configData || typeof configData !== 'object') {
             throw new Error('Invalid configuration data received from Osano.');
         }
@@ -230,17 +211,22 @@ async function processRequest(text, response_url) {
             console.log('Successfully sent response to Slack');
         }
 
+        return {
+            statusCode: 200,
+            body: JSON.stringify({ success: true })
+        };
+
     } catch (error) {
-        console.error('Error in processRequest:', error);
+        console.error('Error in background function:', error);
         
-        // Send error message to Slack via response_url
+        const { response_url } = JSON.parse(event.body);
         const errorMessage = error.name === 'AbortError'
             ? `Request timed out after ${FETCH_TIMEOUT_MS / 1000} seconds while fetching Osano configuration. The Osano API may be slow or unavailable. Please try again.`
             : error.message;
 
         try {
             console.log(`Sending error to Slack: ${errorMessage}`);
-            const errorResponse = await fetch(response_url, {
+            await fetch(response_url, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -248,92 +234,13 @@ async function processRequest(text, response_url) {
                     text: `:warning: *Error:* ${errorMessage}`
                 })
             });
-            
-            if (!errorResponse.ok) {
-                console.error(`Failed to send error to Slack: ${errorResponse.status} ${errorResponse.statusText}`);
-            } else {
-                console.log('Successfully sent error message to Slack');
-            }
         } catch (err) {
             console.error('Failed to send error to Slack:', err);
         }
-    }
-}
 
-/**
- * This is the main Netlify Function handler.
- * It's what Netlify runs when Slack hits our URL.
- *
- * This function immediately acknowledges the Slack command and invokes
- * a background function to do the actual processing.
- */
-exports.handler = async (event, context) => {
-    // 1. Check if it's a POST request (Slack commands are POST)
-    if (event.httpMethod !== 'POST') {
-        return { statusCode: 405, body: 'Method Not Allowed' };
-    }
-
-    try {
-        // 2. Parse and validate the incoming data from Slack
-        const body = new URLSearchParams(event.body);
-        const text = body.get('text');
-        const response_url = body.get('response_url');
-        const user_name = body.get('user_name') || 'Unknown User';
-        const channel_name = body.get('channel_name') || 'Unknown Channel';
-
-        // Log the request for debugging
-        console.log(`Request from ${user_name} in #${channel_name}: ${text}`);
-
-        if (!text || !response_url) {
-            return {
-                statusCode: 200,
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    response_type: 'ephemeral',
-                    text: ':warning: Missing required parameters. Please provide an Osano URL.'
-                })
-            };
-        }
-
-        // 3. Invoke the background function to process the request
-        const backgroundFunctionUrl = `${process.env.URL}/.netlify/functions/osano-config-background`;
-        console.log(`Invoking background function: ${backgroundFunctionUrl}`);
-        
-        fetch(backgroundFunctionUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                text,
-                response_url,
-                user_name,
-                channel_name
-            })
-        }).catch(error => {
-            console.error('Failed to invoke background function:', error);
-        });
-
-        // 4. Immediately return acknowledgment to Slack
         return {
-            statusCode: 200,
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                response_type: 'in_channel',
-                text: ':hourglass_flowing_sand: Fetching Osano configuration details...'
-            })
-        };
-
-    } catch (error) {
-        console.error('Error in handler:', error);
-        
-        // Return error response
-        return {
-            statusCode: 200,
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                response_type: 'ephemeral',
-                text: `:warning: *Error:* ${error.message}`
-            })
+            statusCode: 500,
+            body: JSON.stringify({ error: error.message })
         };
     }
 };
-
