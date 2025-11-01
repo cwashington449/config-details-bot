@@ -1,10 +1,18 @@
-// --- Add node-fetch for server-side fetching ---
+/**
+ * Osano Config Details Bot - Netlify Function
+ *
+ * A Slack bot that fetches and displays Osano CMP configuration details.
+ * Uses asynchronous processing to avoid Slack's 3-second timeout.
+ *
+ * @version 2.0.0
+ * @author Chris Washington
+ */
+
 const fetch = require('node-fetch');
 
-// --- Re-usable helper functions from our HTML file ---
-
 // Regex to find the osano.js URL in a script tag or just a raw URL
-const srcRegex = /https?:\/\/cmp\.osano\.com\/[a-zA-Z0-9-]+\/[a-zA-Z0-9-]+\/osano\.js/;
+const OSANO_URL_REGEX = /https?:\/\/cmp\.osano\.com\/[a-zA-Z0-9-]+\/[a-zA-Z0-9-]+\/osano\.js/;
+const FETCH_TIMEOUT_MS = 25000; // 25 seconds
 
 /**
  * Safely get a nested value from an object.
@@ -166,8 +174,8 @@ function generateConfigSummary(data) {
  */
 async function processRequest(text, response_url) {
     try {
-        // 1. Find the osano.js URL
-        const match = text.match(srcRegex);
+        // 1. Validate and extract the osano.js URL
+        const match = text.trim().match(OSANO_URL_REGEX);
         if (!match) {
             throw new Error('Sorry, I couldn\'t find a valid Osano URL in that text. Please paste the full script tag or the `osano.js` URL.');
         }
@@ -175,9 +183,9 @@ async function processRequest(text, response_url) {
         const osanoUrl = match[0];
         const configUrl = osanoUrl.replace('/osano.js', '/config.json');
 
-        // 2. Fetch the config.json with a timeout
+        // 2. Fetch the config.json with timeout protection
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 25000); // 25 second timeout
+        const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
         const configResponse = await fetch(configUrl, {
             signal: controller.signal
@@ -185,10 +193,16 @@ async function processRequest(text, response_url) {
         clearTimeout(timeoutId);
 
         if (!configResponse.ok) {
-            throw new Error(`Failed to fetch config.json. Server responded with status: ${configResponse.status}`);
+            const statusText = configResponse.statusText || 'Unknown error';
+            throw new Error(`Failed to fetch config.json. Server responded with status: ${configResponse.status} (${statusText})`);
         }
         
         const configData = await configResponse.json();
+        
+        // Validate that we received valid configuration data
+        if (!configData || typeof configData !== 'object') {
+            throw new Error('Invalid configuration data received from Osano.');
+        }
 
         // 3. Generate the human-readable summary
         const responseText = generateConfigSummary(configData);
@@ -236,10 +250,15 @@ exports.handler = async (event) => {
     }
 
     try {
-        // 2. Parse the incoming data from Slack
+        // 2. Parse and validate the incoming data from Slack
         const body = new URLSearchParams(event.body);
         const text = body.get('text');
         const response_url = body.get('response_url');
+        const user_name = body.get('user_name') || 'Unknown User';
+        const channel_name = body.get('channel_name') || 'Unknown Channel';
+
+        // Log the request for debugging
+        console.log(`Request from ${user_name} in #${channel_name}`);
 
         if (!text || !response_url) {
             return {

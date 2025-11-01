@@ -1,6 +1,33 @@
 {
+  "name": "config-details-bot",
+  "version": "2.0.0",
+  "description": "Slack bot for fetching and displaying Osano CMP configuration details",
+  "main": "netlify/functions/osano-config.js",
+  "scripts": {
+    "dev": "netlify dev",
+    "deploy": "netlify deploy --prod"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cwashington449/config-details-bot.git"
+  },
+  "keywords": [
+    "slack",
+    "bot",
+    "osano",
+    "consent-management",
+    "netlify",
+    "serverless"
+  ],
+  "author": "Chris Washington",
+  "license": "MIT",
   "dependencies": {
-    "express": "^5.1.0",
     "node-fetch": "^2.7.0"
+  },
+  "devDependencies": {
+    "netlify-cli": "^17.0.0"
+  },
+  "engines": {
+    "node": ">=14.x"
   }
 }
