@@ -1,3 +1,6 @@
+// --- Add node-fetch for server-side fetching ---
+const fetch = require('node-fetch');
+
 // --- Re-usable helper functions from our HTML file ---
 
 // Regex to find the osano.js URL in a script tag or just a raw URL
@@ -155,56 +158,8 @@ function generateConfigSummary(data) {
     return summary.join('\n');
 }
 
-/**
- * This is the main async function that does all the work.
- * We run this *after* sending the initial "Thinking..." response.
- * @param {string} text - The input text from the user.
- * @param {string} response_url - The temporary URL Slack gives us to send the final message.
- */
-async function processRequest(text, response_url) {
-    let responseText = '';
-
-    try {
-        // 1. Find the osano.js URL
-        const match = text.match(srcRegex);
-        if (!match) {
-            responseText = 'Sorry, I couldn\'t find a valid Osano URL in that text. Please paste the full script tag or the `osano.js` URL.';
-            throw new Error(responseText);
-        }
-
-        const osanoUrl = match[0];
-        const configUrl = osanoUrl.replace('/osano.js', '/config.json');
-
-        // 2. Fetch the config.json
-        const configResponse = await fetch(configUrl);
-        if (!configResponse.ok) {
-            responseText = `Failed to fetch config.json. Server responded with status: ${configResponse.status}`;
-            throw new Error(responseText);
-        }
-        
-        const configData = await configResponse.json();
-
-        // 3. Generate the human-readable summary
-        responseText = generateConfigSummary(configData);
-
-    } catch (error) {
-        console.error('Error in processRequest:', error);
-        // Use the specific error message if we set one, otherwise a generic one
-        if (!responseText) {
-            responseText = `An error occurred: ${error.message}`;
-        }
-    }
-
-    // 4. Send the final, formatted message back to Slack
-    await fetch(response_url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            response_type: 'in_channel', // 'in_channel' or 'ephemeral' (just for the user)
-            text: responseText
-        })
-    });
-}
+// --- DELETED processRequest function ---
+// We will do all work inside the main handler
 
 /**
  * This is the main Netlify Function handler.
@@ -216,41 +171,63 @@ exports.handler = async (event) => {
         return { statusCode: 405, body: 'Method Not Allowed' };
     }
 
+    let responseText = '';
+
     try {
         // 2. Parse the incoming data from Slack
-        // Slack sends data as 'application/x-www-form-urlencoded'
         const body = new URLSearchParams(event.body);
         const text = body.get('text');
-        const response_url = body.get('response_url');
+        const response_url = body.get('response_url'); // We can still use this for error reporting if we want
 
         if (!text || !response_url) {
             return { statusCode: 400, body: 'Bad Request: Missing text or response_url' };
         }
 
-        // 3. Handle Slack's 3-second rule!
-        // We *don't* await processRequest. We call it and let it run in the 
-        // background. This lets us send the "Thinking..." response immediately.
-        processRequest(text, response_url).catch(console.error);
+        // --- ALL WORK IS NOW DONE INSIDE THE HANDLER ---
+        
+        // 3. Find the osano.js URL
+        const match = text.match(srcRegex);
+        if (!match) {
+            throw new Error('Sorry, I couldn\'t find a valid Osano URL in that text. Please paste the full script tag or the `osano.js` URL.');
+        }
 
-        // 4. Send the *immediate* "Thinking..." response.
+        const osanoUrl = match[0];
+        const configUrl = osanoUrl.replace('/osano.js', '/config.json');
+
+        // 4. Fetch the config.json
+        const configResponse = await fetch(configUrl);
+        if (!configResponse.ok) {
+            throw new Error(`Failed to fetch config.json. Server responded with status: ${configResponse.status}`);
+        }
+        
+        const configData = await configResponse.json();
+
+        // 5. Generate the human-readable summary
+        responseText = generateConfigSummary(configData);
+
+        // 6. Return the FINAL summary to Slack
         return {
             statusCode: 200,
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                response_type: 'ephemeral', // 'ephemeral' means "only you can see this"
-                text: 'Got it! Fetching the Osano config now...'
+                response_type: 'in_channel', // 'in_channel' or 'ephemeral' (just for the user)
+                text: responseText
             })
         };
+        // --- END OF WORK ---
 
     } catch (error) {
         console.error('Error in handler:', error);
+        
+        // Send a user-facing error message back to Slack
         return {
             statusCode: 200, // Always send 200 to Slack, even on error
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                response_type: 'ephemeral',
-                text: `A critical error occurred: ${error.message}`
+                response_type: 'ephemeral', // Only the user who ran the command sees the error
+                text: `:warning: *Error:* ${error.message}`
             })
         };
     }
 };
+
