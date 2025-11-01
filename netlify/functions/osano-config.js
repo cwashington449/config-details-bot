@@ -12,7 +12,7 @@ const fetch = require('node-fetch');
 
 // Regex to find the osano.js URL in a script tag or just a raw URL
 const OSANO_URL_REGEX = /https?:\/\/cmp\.osano\.com\/[a-zA-Z0-9-]+\/[a-zA-Z0-9-]+\/osano\.js/;
-const FETCH_TIMEOUT_MS = 25000; // 25 seconds
+const FETCH_TIMEOUT_MS = 50000; // 50 seconds - increased for slow Osano API responses
 
 /**
  * Safely get a nested value from an object.
@@ -184,13 +184,18 @@ async function processRequest(text, response_url) {
         const configUrl = osanoUrl.replace('/osano.js', '/config.json');
 
         // 2. Fetch the config.json with timeout protection
+        console.log(`Fetching config from: ${configUrl}`);
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
         const configResponse = await fetch(configUrl, {
-            signal: controller.signal
+            signal: controller.signal,
+            headers: {
+                'User-Agent': 'Osano-Config-Bot/2.0'
+            }
         });
         clearTimeout(timeoutId);
+        console.log(`Config fetch completed with status: ${configResponse.status}`);
 
         if (!configResponse.ok) {
             const statusText = configResponse.statusText || 'Unknown error';
@@ -205,10 +210,12 @@ async function processRequest(text, response_url) {
         }
 
         // 3. Generate the human-readable summary
+        console.log('Generating config summary...');
         const responseText = generateConfigSummary(configData);
 
         // 4. Send the result back to Slack via response_url
-        await fetch(response_url, {
+        console.log('Sending response to Slack...');
+        const slackResponse = await fetch(response_url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -216,26 +223,40 @@ async function processRequest(text, response_url) {
                 text: responseText
             })
         });
+        
+        if (!slackResponse.ok) {
+            console.error(`Failed to send to Slack: ${slackResponse.status} ${slackResponse.statusText}`);
+        } else {
+            console.log('Successfully sent response to Slack');
+        }
 
     } catch (error) {
         console.error('Error in processRequest:', error);
         
         // Send error message to Slack via response_url
         const errorMessage = error.name === 'AbortError'
-            ? 'Request timed out while fetching Osano configuration. Please try again.'
+            ? `Request timed out after ${FETCH_TIMEOUT_MS / 1000} seconds while fetching Osano configuration. The Osano API may be slow or unavailable. Please try again.`
             : error.message;
 
-        await fetch(response_url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                response_type: 'ephemeral',
-                text: `:warning: *Error:* ${errorMessage}`
-            })
-        }).catch(err => {
-            // If we can't send to response_url, just log it
+        try {
+            console.log(`Sending error to Slack: ${errorMessage}`);
+            const errorResponse = await fetch(response_url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    response_type: 'in_channel',
+                    text: `:warning: *Error:* ${errorMessage}`
+                })
+            });
+            
+            if (!errorResponse.ok) {
+                console.error(`Failed to send error to Slack: ${errorResponse.status} ${errorResponse.statusText}`);
+            } else {
+                console.log('Successfully sent error message to Slack');
+            }
+        } catch (err) {
             console.error('Failed to send error to Slack:', err);
-        });
+        }
     }
 }
 
