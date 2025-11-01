@@ -243,7 +243,10 @@ async function processRequest(text, response_url) {
  * This is the main Netlify Function handler.
  * It's what Netlify runs when Slack hits our URL.
  */
-exports.handler = async (event) => {
+exports.handler = async (event, context) => {
+    // Prevent function from timing out while background work completes
+    context.callbackWaitsForEmptyEventLoop = false;
+    
     // 1. Check if it's a POST request (Slack commands are POST)
     if (event.httpMethod !== 'POST') {
         return { statusCode: 405, body: 'Method Not Allowed' };
@@ -258,7 +261,7 @@ exports.handler = async (event) => {
         const channel_name = body.get('channel_name') || 'Unknown Channel';
 
         // Log the request for debugging
-        console.log(`Request from ${user_name} in #${channel_name}`);
+        console.log(`Request from ${user_name} in #${channel_name}: ${text}`);
 
         if (!text || !response_url) {
             return {
@@ -271,10 +274,13 @@ exports.handler = async (event) => {
             };
         }
 
-        // 3. Start processing in the background (don't await)
-        // This allows us to return immediately to Slack
-        processRequest(text, response_url).catch(error => {
-            console.error('Unhandled error in processRequest:', error);
+        // 3. Start processing in the background
+        // We don't await this so we can return immediately to Slack
+        // The context.callbackWaitsForEmptyEventLoop = false ensures it completes
+        setImmediate(() => {
+            processRequest(text, response_url).catch(error => {
+                console.error('Unhandled error in processRequest:', error);
+            });
         });
 
         // 4. Immediately return acknowledgment to Slack (within 3 seconds)
