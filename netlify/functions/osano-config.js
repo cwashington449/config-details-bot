@@ -60,110 +60,318 @@ function formatValue(value, type) {
 }
 
 /**
- * Generates the Slack mrkdwn summary from the config JSON.
+ * Generates Slack Block Kit blocks from the config JSON.
  * @param {object} data - The fetched config.json.
- * @returns {string} A string formatted for Slack.
+ * @returns {Array} Array of Slack Block Kit blocks.
  */
-function generateConfigSummary(data) {
-    let summary = [];
-
-    // Helper to add a line to the summary
-    const addLine = (label, value, type) => {
-        const formattedValue = formatValue(getValue(data, label, 'N/A'), type);
-        summary.push(`*${value}:* ${formattedValue}`);
-    };
+function generateConfigBlocks(data) {
+    const blocks = [];
     
-    // Helper to add a title
-    const addTitle = (title) => summary.push(`\n*${title}*`);
+    // Helper to create a field object
+    const createField = (label, value, type) => {
+        const formattedValue = formatValue(getValue(data, label, 'N/A'), type);
+        return {
+            type: "mrkdwn",
+            text: `*${value}:*\n${formattedValue}`
+        };
+    };
 
-    // --- Build the Summary ---
-    addTitle('Account Details');
-    addLine('customerId', 'Account ID');
-    addLine('configId', 'Config ID');
-    addLine('domains', 'Domains', 'join');
+    // Header
+    blocks.push({
+        type: "header",
+        text: {
+            type: "plain_text",
+            text: "🔍 Osano Configuration Details",
+            emoji: true
+        }
+    });
 
-    addTitle('Compliance Mode');
-    addLine('mode', 'Mode', 'mode');
+    // Account Details Section
+    blocks.push({
+        type: "section",
+        text: {
+            type: "mrkdwn",
+            text: "*📋 Account Details*"
+        }
+    });
+    blocks.push({
+        type: "section",
+        fields: [
+            createField('customerId', 'Account ID'),
+            createField('configId', 'Config ID'),
+            createField('domains', 'Domains', 'join')
+        ]
+    });
+    blocks.push({ type: "divider" });
 
-    addTitle('Banner Links');
-    addLine('policyLinkText', 'Link Text');
-    addLine('storagePolicyHref', 'Link URL');
-    addLine('additionalLinks', 'Additional Links', 'join');
+    // Compliance Mode
+    blocks.push({
+        type: "section",
+        text: {
+            type: "mrkdwn",
+            text: "*⚖️ Compliance Mode*"
+        }
+    });
+    blocks.push({
+        type: "section",
+        fields: [
+            createField('mode', 'Mode', 'mode')
+        ]
+    });
+    blocks.push({ type: "divider" });
 
-    addTitle('Frameworks');
-    addLine('gpcSupport', 'Support GPC', 'boolean');
-    addLine('dntSupport', 'Support Do Not Track', 'boolean');
-    addLine('iabEnabled', 'IAB TCF', 'boolean');
-    summary.push(`*IAB US Privacy String:* (N/A)`); // Placeholder
-    addLine('googleConsent', 'Google Consent Mode', 'boolean');
+    // Banner Links
+    blocks.push({
+        type: "section",
+        text: {
+            type: "mrkdwn",
+            text: "*🔗 Banner Links*"
+        }
+    });
+    blocks.push({
+        type: "section",
+        fields: [
+            createField('policyLinkText', 'Link Text'),
+            createField('storagePolicyHref', 'Link URL'),
+            createField('additionalLinks', 'Additional Links', 'join')
+        ]
+    });
+    blocks.push({ type: "divider" });
 
-    addTitle('Performance');
-    addLine('codeSplitting', 'Split Payload', 'boolean');
+    // Frameworks
+    blocks.push({
+        type: "section",
+        text: {
+            type: "mrkdwn",
+            text: "*🛡️ Privacy Frameworks*"
+        }
+    });
+    blocks.push({
+        type: "section",
+        fields: [
+            createField('gpcSupport', 'GPC Support', 'boolean'),
+            createField('dntSupport', 'Do Not Track', 'boolean'),
+            createField('iabEnabled', 'IAB TCF', 'boolean'),
+            createField('googleConsent', 'Google Consent Mode', 'boolean')
+        ]
+    });
+    blocks.push({ type: "divider" });
 
-    addTitle('Experience');
-    addLine('forcedClassifyEnabled', 'Block List', 'boolean');
-    addLine('forceManagePreferences', 'First Layer Categories', 'boolean');
-    addLine('managePreferencesEnabled', 'Manage Preferences Enabled', 'boolean');
-    addLine('ccpaRelaxed', 'US State Banner Format', 'ccpa');
-    addLine('crossDomain', 'Cross Domain Support', 'boolean');
+    // Performance
+    blocks.push({
+        type: "section",
+        text: {
+            type: "mrkdwn",
+            text: "*⚡ Performance*"
+        }
+    });
+    blocks.push({
+        type: "section",
+        fields: [
+            createField('codeSplitting', 'Split Payload', 'boolean')
+        ]
+    });
+    blocks.push({ type: "divider" });
 
-    addTitle('Banner Behavior');
-    addLine('allowTimeout', 'Banner Timeout', 'boolean');
-    addLine('timeoutSeconds', 'Timeout (Seconds)');
-    addLine('policyLinkInDrawer', 'Show Links in Drawer', 'boolean');
+    // Experience
+    blocks.push({
+        type: "section",
+        text: {
+            type: "mrkdwn",
+            text: "*✨ User Experience*"
+        }
+    });
+    blocks.push({
+        type: "section",
+        fields: [
+            createField('forcedClassifyEnabled', 'Block List', 'boolean'),
+            createField('forceManagePreferences', 'First Layer Categories', 'boolean'),
+            createField('managePreferencesEnabled', 'Manage Preferences', 'boolean'),
+            createField('ccpaRelaxed', 'US State Format', 'ccpa'),
+            createField('crossDomain', 'Cross Domain', 'boolean')
+        ]
+    });
+    blocks.push({ type: "divider" });
 
-    // --- Collapsible Sections (as simple text lists) ---
-    // Note: Slack mrkdwn doesn't have tables, so lists are cleaner.
+    // Banner Behavior
+    blocks.push({
+        type: "section",
+        text: {
+            type: "mrkdwn",
+            text: "*⏱️ Banner Behavior*"
+        }
+    });
+    blocks.push({
+        type: "section",
+        fields: [
+            createField('allowTimeout', 'Banner Timeout', 'boolean'),
+            createField('timeoutSeconds', 'Timeout (Seconds)'),
+            createField('policyLinkInDrawer', 'Links in Drawer', 'boolean')
+        ]
+    });
+    blocks.push({ type: "divider" });
 
-    // Scripts
+    // Scripts - Collapsible
     const scripts = getValue(data, 'scripts', {});
     const scriptKeys = Object.keys(scripts);
-    addTitle(`Scripts (${scriptKeys.length})`);
-    if (scriptKeys.length > 0) {
-        scriptKeys.forEach(key => summary.push(`• \`${key}\` (${scripts[key]})`));
+    const scriptPreview = scriptKeys.slice(0, 5);
+    const hasMoreScripts = scriptKeys.length > 5;
+    
+    let scriptsText = `*📜 Scripts (${scriptKeys.length})*\n`;
+    if (scriptKeys.length === 0) {
+        scriptsText += '_No scripts classified_';
     } else {
-        summary.push('No scripts classified.');
+        scriptPreview.forEach(key => {
+            scriptsText += `• \`${key}\` - ${scripts[key]}\n`;
+        });
+        if (hasMoreScripts) {
+            scriptsText += `_...and ${scriptKeys.length - 5} more_`;
+        }
     }
+    
+    blocks.push({
+        type: "section",
+        text: {
+            type: "mrkdwn",
+            text: scriptsText
+        }
+    });
+    
+    if (scriptKeys.length > 5) {
+        blocks.push({
+            type: "context",
+            elements: [{
+                type: "mrkdwn",
+                text: "💡 _Showing first 5 scripts. Use Osano dashboard for full list._"
+            }]
+        });
+    }
+    blocks.push({ type: "divider" });
 
-    // Cookies
+    // Cookies - Collapsible
     const cookies = getValue(data, 'cookies', {});
     const cookieKeys = Object.keys(cookies);
     const disclosures = getValue(data, 'disclosures', []);
-    addTitle(`Cookies (${cookieKeys.length})`);
-    summary.push(`*Disclosing Cookies:* ${formatValue(disclosures.length > 0, 'boolean')}`);
-    if (cookieKeys.length > 0) {
-        cookieKeys.forEach(key => {
-            const c = cookies[key];
-            summary.push(`• \`${key}\`: ${c.classification} (Provider: ${c.provider || 'N/A'}, Expiry: ${c.expiry || 'N/A'})`);
-        });
+    const cookiePreview = cookieKeys.slice(0, 5);
+    const hasMoreCookies = cookieKeys.length > 5;
+    
+    let cookiesText = `*🍪 Cookies (${cookieKeys.length})*\n`;
+    cookiesText += `*Disclosing:* ${formatValue(disclosures.length > 0, 'boolean')}\n\n`;
+    
+    if (cookieKeys.length === 0) {
+        cookiesText += '_No cookies classified_';
     } else {
-        summary.push('No cookies classified.');
+        cookiePreview.forEach(key => {
+            const c = cookies[key];
+            cookiesText += `• \`${key}\`\n  ${c.classification} | Provider: ${c.provider || 'N/A'} | Expiry: ${c.expiry || 'N/A'}\n`;
+        });
+        if (hasMoreCookies) {
+            cookiesText += `_...and ${cookieKeys.length - 5} more_`;
+        }
     }
+    
+    blocks.push({
+        type: "section",
+        text: {
+            type: "mrkdwn",
+            text: cookiesText
+        }
+    });
+    
+    if (cookieKeys.length > 5) {
+        blocks.push({
+            type: "context",
+            elements: [{
+                type: "mrkdwn",
+                text: "💡 _Showing first 5 cookies. Use Osano dashboard for full list._"
+            }]
+        });
+    }
+    blocks.push({ type: "divider" });
 
-    // iFrames
+    // iFrames - Collapsible
     const iframes = getValue(data, 'iframes', {});
     const iframeKeys = Object.keys(iframes);
-    addTitle(`iFrames (${iframeKeys.length})`);
-    addLine('iframeBlocking', 'iFrame Blocking Mode');
-    if (iframeKeys.length > 0) {
-        iframeKeys.forEach(key => summary.push(`• \`${key}\` (${iframes[key]})`));
+    const iframePreview = iframeKeys.slice(0, 5);
+    const hasMoreIframes = iframeKeys.length > 5;
+    
+    let iframesText = `*🖼️ iFrames (${iframeKeys.length})*\n`;
+    iframesText += `*Blocking Mode:* ${formatValue(getValue(data, 'iframeBlocking', 'N/A'))}\n\n`;
+    
+    if (iframeKeys.length === 0) {
+        iframesText += '_No iFrames classified_';
     } else {
-        summary.push('No iFrames classified.');
+        iframePreview.forEach(key => {
+            iframesText += `• \`${key}\` - ${iframes[key]}\n`;
+        });
+        if (hasMoreIframes) {
+            iframesText += `_...and ${iframeKeys.length - 5} more_`;
+        }
     }
+    
+    blocks.push({
+        type: "section",
+        text: {
+            type: "mrkdwn",
+            text: iframesText
+        }
+    });
+    
+    if (iframeKeys.length > 5) {
+        blocks.push({
+            type: "context",
+            elements: [{
+                type: "mrkdwn",
+                text: "💡 _Showing first 5 iFrames. Use Osano dashboard for full list._"
+            }]
+        });
+    }
+    blocks.push({ type: "divider" });
 
-    // IAB Vendors
+    // IAB Vendors - Collapsible
     const vendors = getValue(data, 'iab.tcf.v2.vendors', {});
     const vendorKeys = Object.keys(vendors);
-    addTitle(`IAB Vendors (${vendorKeys.length})`);
-    if (vendorKeys.length > 0) {
-        vendorKeys.forEach(key => summary.push(`• Vendor ID: \`${key}\``));
+    const vendorPreview = vendorKeys.slice(0, 10);
+    const hasMoreVendors = vendorKeys.length > 10;
+    
+    let vendorsText = `*🏢 IAB Vendors (${vendorKeys.length})*\n`;
+    if (vendorKeys.length === 0) {
+        vendorsText += '_No IAB vendors disclosed_';
     } else {
-        summary.push('No IAB vendors disclosed.');
+        vendorsText += vendorPreview.map(key => `\`${key}\``).join(', ');
+        if (hasMoreVendors) {
+            vendorsText += `\n_...and ${vendorKeys.length - 10} more_`;
+        }
+    }
+    
+    blocks.push({
+        type: "section",
+        text: {
+            type: "mrkdwn",
+            text: vendorsText
+        }
+    });
+    
+    if (vendorKeys.length > 10) {
+        blocks.push({
+            type: "context",
+            elements: [{
+                type: "mrkdwn",
+                text: "💡 _Showing first 10 vendors. Use Osano dashboard for full list._"
+            }]
+        });
     }
 
-    // Note: We'll skip the palette/color section for Slack as it's less useful without visuals.
-    
-    return summary.join('\n');
+    // Footer
+    blocks.push({
+        type: "context",
+        elements: [{
+            type: "mrkdwn",
+            text: "✅ _Configuration retrieved successfully_"
+        }]
+    });
+
+    return blocks;
 }
 
 /**
@@ -209,9 +417,9 @@ async function processRequest(text, response_url) {
             throw new Error('Invalid configuration data received from Osano.');
         }
 
-        // 3. Generate the human-readable summary
-        console.log('Generating config summary...');
-        const responseText = generateConfigSummary(configData);
+        // 3. Generate the Block Kit blocks
+        console.log('Generating config blocks...');
+        const blocks = generateConfigBlocks(configData);
 
         // 4. Send the result back to Slack via response_url
         console.log('Sending response to Slack...');
@@ -220,7 +428,8 @@ async function processRequest(text, response_url) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 response_type: 'in_channel',
-                text: responseText
+                blocks: blocks,
+                text: '🔍 Osano Configuration Details' // Fallback text for notifications
             })
         });
         
