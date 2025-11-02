@@ -467,7 +467,8 @@ function generateDetailedReport(data) {
 }
 
 /**
- * Uploads a detailed report file to Slack
+ * Uploads a detailed report file to Slack using files.getUploadURLExternal
+ * This method doesn't require the bot to be in the channel
  * @param {object} data - The configuration data
  * @param {string} channel - The channel ID to upload to
  * @returns {Promise<string|null>} The file URL or null if upload failed
@@ -485,32 +486,73 @@ async function uploadDetailedReport(data, channel) {
         const customerId = getValue(data, 'customerId', 'unknown');
         const configId = getValue(data, 'configId', 'unknown');
         const filename = `osano-config-${customerId}-${configId}.txt`;
+        const filesize = Buffer.byteLength(report, 'utf8');
         
-        console.log(`Uploading detailed report to Slack: ${filename}`);
+        console.log(`Uploading detailed report to Slack: ${filename} (${filesize} bytes)`);
         
-        const FormData = require('form-data');
-        const form = new FormData();
-        
-        form.append('token', botToken);
-        form.append('channels', channel);
-        form.append('content', report);
-        form.append('filename', filename);
-        form.append('title', `📄 Osano Configuration Details - ${customerId}`);
-        form.append('initial_comment', '📊 Complete configuration report with all scripts, cookies, iFrames, and vendors');
-        
-        const uploadResponse = await fetch('https://slack.com/api/files.upload', {
+        // Step 1: Get upload URL
+        const uploadUrlResponse = await fetch('https://slack.com/api/files.getUploadURLExternal', {
             method: 'POST',
-            body: form,
-            headers: form.getHeaders()
+            headers: {
+                'Authorization': `Bearer ${botToken}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                filename: filename,
+                length: filesize
+            })
         });
         
-        const result = await uploadResponse.json();
+        const uploadUrlResult = await uploadUrlResponse.json();
         
-        if (result.ok) {
-            console.log('File uploaded successfully');
-            return result.file.permalink;
+        if (!uploadUrlResult.ok) {
+            console.error('Failed to get upload URL:', uploadUrlResult.error);
+            return null;
+        }
+        
+        console.log('Got upload URL, uploading file content...');
+        
+        // Step 2: Upload file content
+        const uploadResponse = await fetch(uploadUrlResult.upload_url, {
+            method: 'POST',
+            body: report,
+            headers: {
+                'Content-Type': 'text/plain'
+            }
+        });
+        
+        if (!uploadResponse.ok) {
+            console.error('Failed to upload file content:', uploadResponse.status);
+            return null;
+        }
+        
+        console.log('File content uploaded, completing upload...');
+        
+        // Step 3: Complete the upload
+        const completeResponse = await fetch('https://slack.com/api/files.completeUploadExternal', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${botToken}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                files: [{
+                    id: uploadUrlResult.file_id,
+                    title: `📄 Osano Configuration - ${customerId}`
+                }],
+                channel_id: channel,
+                initial_comment: '📊 Complete configuration report with all scripts, cookies, iFrames, and vendors'
+            })
+        });
+        
+        const completeResult = await completeResponse.json();
+        
+        if (completeResult.ok) {
+            console.log('File upload completed successfully');
+            const fileUrl = completeResult.files[0].permalink;
+            return fileUrl;
         } else {
-            console.error('File upload failed:', result.error);
+            console.error('Failed to complete upload:', completeResult.error);
             return null;
         }
     } catch (error) {
