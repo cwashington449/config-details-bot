@@ -569,10 +569,27 @@ async function processRequest(text, response_url, channel_id) {
         const iframes = getValue(configData, 'iframes', {});
         const totalItems = Object.keys(scripts).length + Object.keys(cookies).length + Object.keys(iframes).length;
         
+        console.log(`Configuration stats: ${Object.keys(scripts).length} scripts, ${Object.keys(cookies).length} cookies, ${Object.keys(iframes).length} iframes = ${totalItems} total items`);
+        console.log(`Channel ID: ${channel_id || 'NOT PROVIDED'}`);
+        console.log(`Bot token configured: ${process.env.SLACK_BOT_TOKEN ? 'YES' : 'NO'}`);
+        
         let fileUrl = null;
-        if (totalItems > 15 && channel_id) {
-            console.log(`Large configuration detected (${totalItems} items), uploading detailed report...`);
-            fileUrl = await uploadDetailedReport(configData, channel_id);
+        if (totalItems > 15) {
+            if (!channel_id) {
+                console.warn('Cannot upload file: channel_id not provided by Slack');
+            } else if (!process.env.SLACK_BOT_TOKEN) {
+                console.warn('Cannot upload file: SLACK_BOT_TOKEN not configured');
+            } else {
+                console.log(`Large configuration detected (${totalItems} items), uploading detailed report...`);
+                fileUrl = await uploadDetailedReport(configData, channel_id);
+                if (fileUrl) {
+                    console.log(`File uploaded successfully: ${fileUrl}`);
+                } else {
+                    console.error('File upload returned null - check logs above for errors');
+                }
+            }
+        } else {
+            console.log(`Configuration is small (${totalItems} items), skipping file upload`);
         }
 
         // 4. Generate the Block Kit blocks
