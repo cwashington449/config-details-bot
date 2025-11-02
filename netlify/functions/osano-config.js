@@ -2,9 +2,9 @@
  * Osano Config Details Bot - Netlify Function
  *
  * A Slack bot that fetches and displays Osano CMP configuration details.
- * Uses asynchronous processing to avoid Slack's 3-second timeout.
+ * Processes synchronously and sends result via Slack's response_url.
  *
- * @version 2.0.0
+ * @version 2.0.1
  * @author Chris Washington
  */
 
@@ -12,7 +12,7 @@ const fetch = require('node-fetch');
 
 // Regex to find the osano.js URL in a script tag or just a raw URL
 const OSANO_URL_REGEX = /https?:\/\/cmp\.osano\.com\/[a-zA-Z0-9-]+\/[a-zA-Z0-9-]+\/osano\.js/;
-const FETCH_TIMEOUT_MS = 50000; // 50 seconds - increased for slow Osano API responses
+const FETCH_TIMEOUT_MS = 30000; // 30 seconds
 
 /**
  * Safely get a nested value from an object.
@@ -262,12 +262,11 @@ async function processRequest(text, response_url) {
 
 /**
  * This is the main Netlify Function handler.
- * It's what Netlify runs when Slack hits our URL.
  *
- * This function immediately acknowledges the Slack command and invokes
- * a background function to do the actual processing.
+ * Strategy: Process the request fully and send result via response_url.
+ * Slack will show a loading state while we work.
  */
-exports.handler = async (event, context) => {
+exports.handler = async (event) => {
     // 1. Check if it's a POST request (Slack commands are POST)
     if (event.httpMethod !== 'POST') {
         return { statusCode: 405, body: 'Method Not Allowed' };
@@ -295,31 +294,13 @@ exports.handler = async (event, context) => {
             };
         }
 
-        // 3. Invoke the background function to process the request
-        const backgroundFunctionUrl = `${process.env.URL}/.netlify/functions/osano-config-background`;
-        console.log(`Invoking background function: ${backgroundFunctionUrl}`);
-        
-        fetch(backgroundFunctionUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                text,
-                response_url,
-                user_name,
-                channel_name
-            })
-        }).catch(error => {
-            console.error('Failed to invoke background function:', error);
-        });
+        // 3. Process the request immediately and await completion
+        await processRequest(text, response_url);
 
-        // 4. Immediately return acknowledgment to Slack
+        // 4. Return success (Slack won't show this, result goes via response_url)
         return {
             statusCode: 200,
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                response_type: 'in_channel',
-                text: ':hourglass_flowing_sand: Fetching Osano configuration details...'
-            })
+            body: 'Processing complete'
         };
 
     } catch (error) {
