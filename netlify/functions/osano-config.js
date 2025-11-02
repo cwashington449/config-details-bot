@@ -375,12 +375,158 @@ function generateConfigBlocks(data) {
 }
 
 /**
+ * Generates a detailed text report of all configuration items
+ * @param {object} data - The fetched config.json
+ * @returns {string} Formatted text report
+ */
+function generateDetailedReport(data) {
+    let report = [];
+    
+    report.push('═══════════════════════════════════════════════════════════');
+    report.push('           OSANO CONFIGURATION - DETAILED REPORT');
+    report.push('═══════════════════════════════════════════════════════════\n');
+    
+    // Account Details
+    report.push('📋 ACCOUNT DETAILS');
+    report.push('─────────────────────────────────────────────────────────');
+    report.push(`Account ID: ${getValue(data, 'customerId')}`);
+    report.push(`Config ID: ${getValue(data, 'configId')}`);
+    report.push(`Domains: ${formatValue(getValue(data, 'domains'), 'join')}\n`);
+    
+    // Scripts
+    const scripts = getValue(data, 'scripts', {});
+    const scriptKeys = Object.keys(scripts);
+    report.push(`📜 SCRIPTS (${scriptKeys.length})`);
+    report.push('─────────────────────────────────────────────────────────');
+    if (scriptKeys.length === 0) {
+        report.push('No scripts classified\n');
+    } else {
+        scriptKeys.forEach((key, index) => {
+            report.push(`${index + 1}. ${key}`);
+            report.push(`   Classification: ${scripts[key]}`);
+        });
+        report.push('');
+    }
+    
+    // Cookies
+    const cookies = getValue(data, 'cookies', {});
+    const cookieKeys = Object.keys(cookies);
+    const disclosures = getValue(data, 'disclosures', []);
+    report.push(`🍪 COOKIES (${cookieKeys.length})`);
+    report.push('─────────────────────────────────────────────────────────');
+    report.push(`Disclosing Cookies: ${formatValue(disclosures.length > 0, 'boolean')}\n`);
+    if (cookieKeys.length === 0) {
+        report.push('No cookies classified\n');
+    } else {
+        cookieKeys.forEach((key, index) => {
+            const c = cookies[key];
+            report.push(`${index + 1}. ${key}`);
+            report.push(`   Classification: ${c.classification}`);
+            report.push(`   Provider: ${c.provider || 'N/A'}`);
+            report.push(`   Expiry: ${c.expiry || 'N/A'}`);
+            report.push(`   Domain: ${c.domain || 'N/A'}`);
+        });
+        report.push('');
+    }
+    
+    // iFrames
+    const iframes = getValue(data, 'iframes', {});
+    const iframeKeys = Object.keys(iframes);
+    report.push(`🖼️ IFRAMES (${iframeKeys.length})`);
+    report.push('─────────────────────────────────────────────────────────');
+    report.push(`Blocking Mode: ${formatValue(getValue(data, 'iframeBlocking'))}\n`);
+    if (iframeKeys.length === 0) {
+        report.push('No iFrames classified\n');
+    } else {
+        iframeKeys.forEach((key, index) => {
+            report.push(`${index + 1}. ${key}`);
+            report.push(`   Classification: ${iframes[key]}`);
+        });
+        report.push('');
+    }
+    
+    // IAB Vendors
+    const vendors = getValue(data, 'iab.tcf.v2.vendors', {});
+    const vendorKeys = Object.keys(vendors);
+    report.push(`🏢 IAB VENDORS (${vendorKeys.length})`);
+    report.push('─────────────────────────────────────────────────────────');
+    if (vendorKeys.length === 0) {
+        report.push('No IAB vendors disclosed\n');
+    } else {
+        vendorKeys.forEach((key, index) => {
+            report.push(`${index + 1}. Vendor ID: ${key}`);
+        });
+        report.push('');
+    }
+    
+    report.push('═══════════════════════════════════════════════════════════');
+    report.push('                    END OF REPORT');
+    report.push('═══════════════════════════════════════════════════════════');
+    
+    return report.join('\n');
+}
+
+/**
+ * Uploads a detailed report file to Slack
+ * @param {object} data - The configuration data
+ * @param {string} channel - The channel ID to upload to
+ * @returns {Promise<string|null>} The file URL or null if upload failed
+ */
+async function uploadDetailedReport(data, channel) {
+    const botToken = process.env.SLACK_BOT_TOKEN;
+    
+    if (!botToken) {
+        console.error('SLACK_BOT_TOKEN not configured');
+        return null;
+    }
+    
+    try {
+        const report = generateDetailedReport(data);
+        const customerId = getValue(data, 'customerId', 'unknown');
+        const configId = getValue(data, 'configId', 'unknown');
+        const filename = `osano-config-${customerId}-${configId}.txt`;
+        
+        console.log(`Uploading detailed report to Slack: ${filename}`);
+        
+        const FormData = require('form-data');
+        const form = new FormData();
+        
+        form.append('token', botToken);
+        form.append('channels', channel);
+        form.append('content', report);
+        form.append('filename', filename);
+        form.append('title', `📄 Osano Configuration Details - ${customerId}`);
+        form.append('initial_comment', '📊 Complete configuration report with all scripts, cookies, iFrames, and vendors');
+        
+        const uploadResponse = await fetch('https://slack.com/api/files.upload', {
+            method: 'POST',
+            body: form,
+            headers: form.getHeaders()
+        });
+        
+        const result = await uploadResponse.json();
+        
+        if (result.ok) {
+            console.log('File uploaded successfully');
+            return result.file.permalink;
+        } else {
+            console.error('File upload failed:', result.error);
+            return null;
+        }
+    } catch (error) {
+        console.error('Error uploading file:', error);
+        return null;
+    }
+}
+
+/**
  * Process the request asynchronously and send the result to Slack's response_url.
  * This function runs in the background after we've acknowledged the slash command.
  * @param {string} text - The text from the slash command
  * @param {string} response_url - Slack's webhook URL to send the delayed response
+ * @param {string} channel_id - The channel ID where the command was run
  */
-async function processRequest(text, response_url) {
+async function processRequest(text, response_url, channel_id) {
     try {
         // 1. Validate and extract the osano.js URL
         const match = text.trim().match(OSANO_URL_REGEX);
@@ -417,11 +563,34 @@ async function processRequest(text, response_url) {
             throw new Error('Invalid configuration data received from Osano.');
         }
 
-        // 3. Generate the Block Kit blocks
+        // 3. Check if we should upload a detailed report
+        const scripts = getValue(configData, 'scripts', {});
+        const cookies = getValue(configData, 'cookies', {});
+        const iframes = getValue(configData, 'iframes', {});
+        const totalItems = Object.keys(scripts).length + Object.keys(cookies).length + Object.keys(iframes).length;
+        
+        let fileUrl = null;
+        if (totalItems > 15 && channel_id) {
+            console.log(`Large configuration detected (${totalItems} items), uploading detailed report...`);
+            fileUrl = await uploadDetailedReport(configData, channel_id);
+        }
+
+        // 4. Generate the Block Kit blocks
         console.log('Generating config blocks...');
         const blocks = generateConfigBlocks(configData);
+        
+        // Add file upload notification if successful
+        if (fileUrl) {
+            blocks.push({
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: `📄 *Detailed Report Available*\nA complete report with all ${totalItems} items has been uploaded as a file above.`
+                }
+            });
+        }
 
-        // 4. Send the result back to Slack via response_url
+        // 5. Send the result back to Slack via response_url
         console.log('Sending response to Slack...');
         const slackResponse = await fetch(response_url, {
             method: 'POST',
@@ -503,8 +672,11 @@ exports.handler = async (event) => {
             };
         }
 
+        // Get channel ID for file uploads
+        const channel_id = body.get('channel_id');
+
         // 3. Process the request immediately and await completion
-        await processRequest(text, response_url);
+        await processRequest(text, response_url, channel_id);
 
         // 4. Return success (Slack won't show this, result goes via response_url)
         return {
