@@ -495,12 +495,12 @@ async function uploadDetailedReport(data, channel) {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${botToken}`,
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/x-www-form-urlencoded'
             },
-            body: JSON.stringify({
+            body: new URLSearchParams({
                 filename: filename,
-                length: filesize
-            })
+                length: filesize.toString()
+            }).toString()
         });
         
         const uploadUrlResult = await uploadUrlResponse.json();
@@ -533,16 +533,16 @@ async function uploadDetailedReport(data, channel) {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${botToken}`,
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/x-www-form-urlencoded'
             },
-            body: JSON.stringify({
-                files: [{
+            body: new URLSearchParams({
+                files: JSON.stringify([{
                     id: uploadUrlResult.file_id,
                     title: `📄 Osano Configuration - ${customerId}`
-                }],
+                }]),
                 channel_id: channel,
                 initial_comment: '📊 Complete configuration report with all scripts, cookies, iFrames, and vendors'
-            })
+            }).toString()
         });
         
         const completeResult = await completeResponse.json();
